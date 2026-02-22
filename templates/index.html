@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Барочный ипотечный калькулятор</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Шрифт в стиле барокко -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700;900&family=Marcellus&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body data-theme="burgundy">
+<div class="page-background"></div>
+<div class="overlay-pattern"></div>
+
+<div class="wrapper">
+    <header class="header">
+        <div class="header-marble">
+            <div class="header-main">
+                <h1 class="title">Ипотечный калькулятор</h1>
+                <p class="subtitle">
+                    Роскошный способ рассчитать ежемесячный платёж, переплату и график платежей.
+                </p>
+            </div>
+        </div>
+    </header>
+
+    <main class="content">
+        <section class="panel panel-form">
+            <div class="panel-marble">
+                <h2 class="panel-title">Параметры кредита</h2>
+                <form method="post" class="form-grid" autocomplete="off">
+                    <!-- Сумма кредита -->
+                    <div class="form-group">
+                        <label class="label" for="loan_amount_input">Сумма кредита, ₽</label>
+                        <div class="input-with-slider">
+                            <input
+                                id="loan_amount_input"
+                                name="loan_amount"
+                                type="text"
+                                class="input money-input"
+                                inputmode="numeric"
+                                value="{{ loan_amount_raw }}"
+                                autocomplete="off"
+                            >
+                            <input
+                                id="loan_amount_slider"
+                                type="range"
+                                min="500000"
+                                max="30000000"
+                                step="50000"
+                                value=""
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Первоначальный взнос -->
+                    <div class="form-group">
+                        <label class="label" for="down_payment_input">
+                            Первоначальный взнос, ₽
+                            {% if down_percent %}
+                                <span class="label-note">
+                                    ({{ '%.1f' % down_percent }}% от суммы кредита)
+                                </span>
+                            {% else %}
+                                <span class="label-note" id="down_percent_label"></span>
+                            {% endif %}
+                        </label>
+                        <div class="input-with-slider">
+                            <input
+                                id="down_payment_input"
+                                name="down_payment"
+                                type="text"
+                                class="input money-input"
+                                inputmode="numeric"
+                                value="{{ down_payment_raw }}"
+                                autocomplete="off"
+                            >
+                            <input
+                                id="down_payment_slider"
+                                type="range"
+                                min="0"
+                                max="15000000"
+                                step="50000"
+                                value=""
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Срок кредита -->
+                    <div class="form-group">
+                        <label class="label" for="years_input">Срок кредита, лет</label>
+                        <div class="input-with-slider">
+                            <input
+                                id="years_input"
+                                name="years"
+                                type="text"
+                                class="input"
+                                inputmode="numeric"
+                                value="{{ years_raw }}"
+                            >
+                            <input
+                                id="years_slider"
+                                type="range"
+                                min="1"
+                                max="35"
+                                step="1"
+                                value="{{ years_raw }}"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Процентная ставка -->
+                    <div class="form-group form-group-rate">
+                        <div class="label-row">
+                            <label class="label" for="rate_input">
+                                Процентная ставка, <span id="rate_label_suffix">% годовых</span>
+                            </label>
+                            <div class="label-row-right">
+                                <button type="button" id="installment_toggle" class="pill-toggle" aria-pressed="false">
+                                    Рассрочка
+                                </button>
+                            </div>
+                        </div>
+                        <div class="input-with-slider">
+                            <input
+                                id="rate_input"
+                                name="rate"
+                                type="text"
+                                class="input"
+                                inputmode="decimal"
+                                value="{{ rate_raw }}"
+                            >
+                            <input
+                                id="rate_slider"
+                                type="range"
+                                min="0"
+                                max="40"
+                                step="0.1"
+                                value="{{ rate_raw|replace(',', '.') }}"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Досрочные платежи -->
+                    <div class="form-group form-group-prepayments">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="prepayment_enabled" name="prepayment_enabled" {% if prepayments_data|default('[]') != '[]' %}checked{% endif %}>
+                            <span>Досрочное погашение</span>
+                        </label>
+                        <div id="prepayment_options" class="prepayment-options" style="display: none;">
+                            <div class="prepayment-strategy">
+                                <label class="radio-label">
+                                    <input type="radio" name="prepayment_strategy" value="reduce_payment" {% if prepayment_strategy|default('reduce_payment') == 'reduce_payment' %}checked{% endif %}>
+                                    <span>Уменьшить платёж</span>
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="prepayment_strategy" value="reduce_term" {% if prepayment_strategy|default('reduce_payment') == 'reduce_term' %}checked{% endif %}>
+                                    <span>Уменьшить срок</span>
+                                </label>
+                            </div>
+                            <div class="prepayment-inputs">
+                                <div class="prepayment-input-group">
+                                    <input
+                                        type="number"
+                                        id="prepayment_month"
+                                        class="input prepayment-month"
+                                        placeholder="Месяц"
+                                        min="1"
+                                        step="1"
+                                    >
+                                    <input
+                                        type="text"
+                                        id="prepayment_amount"
+                                        class="input money-input prepayment-amount"
+                                        placeholder="Сумма, ₽"
+                                        inputmode="numeric"
+                                    >
+                                    <button type="button" id="add_prepayment_btn" class="btn-royal-secondary btn-add-prepayment">
+                                        Добавить
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="prepayments_list" class="prepayments-list"></div>
+                        </div>
+                        <input type="hidden" id="prepayments_data" name="prepayments_data" value="{{ prepayments_data|default('[]') }}">
+                    </div>
+
+                    <div class="form-actions">
+                        <div class="actions-left"></div>
+                        <div class="actions-right">
+                            <button type="submit" class="btn-royal">
+                                Рассчитать
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="panel panel-results">
+            <div class="panel-marble">
+                <h2 class="panel-title">Результаты</h2>
+                {% if principal and principal > 0 %}
+                    <div class="results-grid">
+                        <div class="result-block">
+                            <div class="result-label">Основной долг</div>
+                            <div class="result-value">
+                                {{ format_rubles(principal, False) }} ₽
+                            </div>
+                        </div>
+                        <div class="result-block">
+                            <div class="result-label">Ежемесячный платёж</div>
+                            <div class="result-value">
+                                {{ format_rubles(monthly_payment, True) }} ₽
+                            </div>
+                        </div>
+                        <div class="result-block">
+                            <div class="result-label">Сумма всех платежей</div>
+                            <div class="result-value">
+                                {{ format_rubles(total_paid, True) }} ₽
+                            </div>
+                        </div>
+                        <div class="result-block">
+                            <div class="result-label">Проценты банку (переплата)</div>
+                            <div class="result-value result-accent">
+                                {{ format_rubles(overpayment, True) }} ₽
+                            </div>
+                        </div>
+                        <div class="result-block">
+                            <div class="result-label">Минимальный необходимый доход</div>
+                            <div class="result-value">
+                                {{ format_rubles(min_income, True) }} ₽
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="placeholder-text">
+                        Укажите параметры кредита и нажмите кнопку «Рассчитать», чтобы увидеть платежи и переплату.
+                    </p>
+                {% endif %}
+            </div>
+        </section>
+
+        {% if principal and principal > 0 %}
+        <section class="panel panel-charts">
+            <div class="panel-marble">
+                <h2 class="panel-title">Визуализация результатов</h2>
+                <div class="charts-grid">
+                    <div class="chart-card chart-card-full">
+                        <h3 class="chart-title">Остаток долга по месяцам</h3>
+                        <canvas id="balanceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if schedule %}
+        <section class="panel panel-table">
+            <div class="panel-marble">
+                <div class="schedule-header">
+                    <h2 class="panel-title">График платежей</h2>
+                    <button type="button" class="btn-royal btn-export-excel" id="btnExportExcel">
+                        Сохранить в Excel
+                    </button>
+                </div>
+                <script>
+                    window.exportData = {
+                        schedule_data: {{ schedule_for_export|tojson }},
+                        loan_amount: {{ loan_amount_raw|tojson }},
+                        down_payment: {{ down_payment_raw|tojson }},
+                        years: {{ years_raw|tojson }},
+                        rate: {{ rate_raw|tojson }},
+                        principal: {{ principal|tojson }},
+                        monthly_payment: {{ monthly_payment|tojson }},
+                        total_paid: {{ total_paid|tojson }},
+                        overpayment: {{ overpayment|tojson }}
+                    };
+                </script>
+                <div class="table-wrapper">
+                    <table class="payments-table">
+                        <thead>
+                        <tr>
+                            <th>Месяц</th>
+                            <th>Платёж, ₽</th>
+                            <th>Из них тело, ₽</th>
+                            <th>Из них проценты, ₽</th>
+                            <th>Досрочный платёж, ₽</th>
+                            <th>Остаток долга, ₽</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in schedule %}
+                            <tr>
+                                <td>{{ row.month }}</td>
+                                <td>{{ format_rubles(row.payment, True) }}</td>
+                                <td>{{ format_rubles(row.principal, True) }}</td>
+                                <td>{{ format_rubles(row.interest, True) }}</td>
+                                <td>{% if row.prepayment > 0 %}{{ format_rubles(row.prepayment, True) }}{% else %}-{% endif %}</td>
+                                <td>{{ format_rubles(row.balance, True) }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-marble">
+            <span>© Барочный ипотечный калькулятор, {{ 2026 }}</span>
+        </div>
+    </footer>
+</div>
+
+{% if schedule %}
+<script>
+    const balanceLabels = {{ schedule|map(attribute='month')|list|tojson }};
+    const balanceData = {{ schedule|map(attribute='balance')|list|tojson }};
+</script>
+{% endif %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
